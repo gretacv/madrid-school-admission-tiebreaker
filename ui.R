@@ -349,13 +349,14 @@ Benito Vidal Omar,72",
           ),
 
           tags$label("Buscar alumno/a:"),
-          textInput("nombre_buscar", NULL, placeholder = "Ej: Sofia"),
+          textInput("nombre_buscar", NULL, placeholder = "Ej: Ortega · Ortega Soto · Ortega Soto Vera"),
 
           actionButton("calcular", "Calcular", class = "btn btn-primary", width = "100%")
         )
       ),
 
       column(7,
+        uiOutput("selector_alumno"),
         uiOutput("resultado_alumno"),
         uiOutput("razonamiento_ui"),
         div(class = "panel-custom",

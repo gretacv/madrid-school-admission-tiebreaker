@@ -27,6 +27,51 @@ server <- function(input, output, session) {
       filter(!is.na(Nombre), !is.na(Puntuacion), Nombre != "")
 
     procesar_lista(df, input$sorteo_num)
+  }, ignoreNULL = FALSE)
+
+  # All students matching the current search term
+  candidatos <- reactive({
+    res <- datos()
+    if (is.null(res)) return(data.frame())
+    buscar <- str_trim(input$nombre_buscar)
+    if (buscar == "") return(data.frame())
+    res$resultado %>% filter(str_detect(tolower(Nombre), tolower(buscar)))
+  })
+
+  # Disambiguation selector rendered when multiple students match
+  output$selector_alumno <- renderUI({
+    cands <- candidatos()
+    if (nrow(cands) <= 1) return(NULL)
+
+    choices <- setNames(
+      cands$Nombre,
+      paste0(cands$Nombre, " — puesto ", cands$Posicion)
+    )
+
+    div(
+      style = "background:#fff8e6; border:1px solid #e0d0a0; border-radius:6px; padding:16px 20px; margin-bottom:16px;",
+      p(
+        style = "margin:0 0 10px; font-size:13px; color:#7a5200; font-weight:600;",
+        paste0("⚠️ Se encontraron ", nrow(cands),
+               " alumnos con ‘", str_trim(input$nombre_buscar),
+               "’. Selecciona el alumno:")
+      ),
+      selectInput("alumno_sel", NULL, choices = choices, width = "100%")
+    )
+  })
+
+  # The single active student (resolved from 1 match or selection)
+  fila_activa <- reactive({
+    cands <- candidatos()
+    if (nrow(cands) == 0) return(NULL)
+    if (nrow(cands) == 1) return(cands[1, ])
+
+    sel <- input$alumno_sel
+    if (is.null(sel) || sel == "") return(cands[1, ])
+
+    fila <- cands %>% filter(Nombre == sel)
+    if (nrow(fila) == 0) return(cands[1, ])
+    fila[1, ]
   })
 
   output$resultado_alumno <- renderUI({
@@ -35,16 +80,16 @@ server <- function(input, output, session) {
     buscar <- str_trim(input$nombre_buscar)
     if (buscar == "") return(NULL)
 
-    df_res <- res$resultado
-    fila <- df_res %>% filter(str_detect(tolower(Nombre), tolower(buscar)))
-
-    if (nrow(fila) == 0) {
+    cands <- candidatos()
+    if (nrow(cands) == 0) {
       return(div(class = "panel-custom",
         p(style = "color:#b03030;",
           paste0("⚠️ No se encontró ningún alumno con '", buscar, "' en su nombre."))))
     }
 
-    fila <- fila[1, ]
+    fila <- fila_activa()
+    if (is.null(fila)) return(NULL)
+
     corte <- input$corte
     entra <- fila$Posicion <= corte
 
@@ -78,14 +123,13 @@ server <- function(input, output, session) {
     buscar <- str_trim(input$nombre_buscar)
     if (buscar == "") return(NULL)
 
-    df_res <- res$resultado
-    fila <- df_res %>% filter(str_detect(tolower(Nombre), tolower(buscar)))
-    if (nrow(fila) == 0) return(NULL)
-    fila <- fila[1, ]
+    fila <- fila_activa()
+    if (is.null(fila)) return(NULL)
 
     punt_str <- as.character(fila$Puntuacion)
     razon <- res$razonamientos[[punt_str]]
     corte <- input$corte
+    df_res <- res$resultado
 
     plazas_antes <- df_res %>% filter(Puntuacion > fila$Puntuacion) %>% nrow()
     plazas_grupo <- max(0, corte - plazas_antes)
@@ -124,13 +168,13 @@ server <- function(input, output, session) {
             tags$strong("Paso 5 · Lista alfabética del grupo"),
             tags$p(
               style = "font-size:12px; margin-bottom:6px;",
-              paste0("🟡 = inicio del sorteo (nº ", razon$p, ")  |  🔵 = alumno buscado")
+              paste0("🟡 = inicio del sorteo (nº ", razon$p, ")  |  🔵 = alumno seleccionado")
             ),
             div(class = "lista-alfa",
               lapply(seq_along(razon$lista_alfa), function(i) {
                 nombre_i   <- razon$lista_alfa[i]
                 es_inicio  <- i == razon$p
-                es_buscado <- str_detect(tolower(nombre_i), tolower(buscar))
+                es_buscado <- nombre_i == fila$Nombre
                 clase <- if (es_inicio && es_buscado) "alfa-item buscado"
                          else if (es_inicio)          "alfa-item inicio"
                          else if (es_buscado)         "alfa-item buscado"
@@ -182,7 +226,7 @@ server <- function(input, output, session) {
 
   output$tabla_resultado <- renderDT({
     res <- datos()
-    if (is.null(res)) return(NULL)
+    req(res)
 
     buscar <- str_trim(input$nombre_buscar)
     corte  <- input$corte
